@@ -47,7 +47,8 @@ def _fetch_from_eastmoney() -> pd.DataFrame | None:
                 df = pd.DataFrame(rows)[["f12", "f14"]]
                 df.columns = ["code", "name"]
                 df["market"] = df["code"].apply(_market_from_code)
-                return df
+                if len(df) >= 1000:
+                    return df
             except Exception:
                 time.sleep(1)
         return None
@@ -103,6 +104,8 @@ def load_stocks() -> pd.DataFrame:
     if STOCKS_CSV.exists():
         return pd.read_csv(STOCKS_CSV, dtype=str)
     df = fetch_all_stocks()
+    df["name"] = df["name"].str.replace(r"^(XD|XR|DR|X|D|N)\s*", "", regex=True)
+    df = df.drop_duplicates(subset="code", keep="last").reset_index(drop=True)
     df.to_csv(STOCKS_CSV, index=False, encoding="utf-8")
     return df
 

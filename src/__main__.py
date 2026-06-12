@@ -9,25 +9,57 @@ from src.stock_reader import read_daily
 from src.analyzer import analyze
 
 
+def _normalize_code(keyword: str) -> str | None:
+    raw = keyword.strip().upper().replace(".NAN", "").replace(".BJ", "").replace(".SH", "").replace(".SZ", "")
+    if raw.isdigit() and len(raw) == 6:
+        return raw
+    return None
+
+
+def _lookup_by_code(keyword: str):
+    code = _normalize_code(keyword)
+    if code is None:
+        return None
+    df = load_stocks()
+    match = df[df["code"] == code]
+    if match.empty:
+        return None
+    stock = match[match["market"].isin(["SH", "SZ", "BJ"])]
+    if not stock.empty:
+        return stock.iloc[0]
+    return match.iloc[0]
+
+
 def _pick_stock(keyword: str):
     results = search(keyword)
     if results.empty:
-        print(f"未找到匹配 \"{keyword}\" 的股票")
+        stock = _lookup_by_code(keyword)
+        if stock is not None:
+            return stock
+        print(f"未找到匹配 \"{keyword}\" 的股票，请尝试输入股票代码")
         return None
     if len(results) == 1:
         return results.iloc[0]
     print(f"匹配到以下股票:")
     for i, (_, row) in enumerate(results.iterrows(), 1):
         print(f"  {i}. {row['code']}.{row['market']}  {row['name']}")
+    print("(输入股票代码直接匹配，回车返回搜索)")
     while True:
+        choice = input("请选择 (输入编号或代码): ").strip()
+        if not choice:
+            return None
+        if choice.lower() in ("exit", "quit", "cancel", "back"):
+            return None
         try:
-            choice = input("请选择 (输入编号): ").strip()
             idx = int(choice) - 1
             if 0 <= idx < len(results):
                 return results.iloc[idx]
-            print(f"请输入 1-{len(results)} 之间的编号")
         except ValueError:
-            print("请输入有效数字")
+            pass
+        stock = _lookup_by_code(choice)
+        if stock is not None:
+            return stock
+        print("未匹配到股票代码，请重新输入")
 
 
 def main():
