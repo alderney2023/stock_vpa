@@ -3,10 +3,13 @@ import sys
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-from src.config import LLM_API_KEY, KLINE_COUNT, LLM_MODEL
+from src.config import (
+    LLM_API_KEY, KLINE_COUNT, LLM_MODEL,
+    DEFAULT_MODEL, ALL_MODELS
+)
 from src.stock_map import search, load_stocks
 from src.stock_reader import read_daily
-from src.analyzer import analyze
+from src.vpa_analyzer import analyze
 
 
 def _normalize_code(keyword: str) -> str | None:
@@ -74,17 +77,25 @@ def main():
 
     if not LLM_API_KEY:
         print("=" * 50)
-        print("警告: 未配置 LLM_API_KEY")
-        print("请在 .env 文件中设置以下配置项:")
-        print("  LLM_API_KEY=your_api_key")
-        print("  LLM_BASE_URL=https://api.deepseek.com  (可选)")
-        print("  LLM_MODEL=deepseek-chat  (可选)")
-        print("  KLINE_COUNT=120  (可选)")
+        print("警告: 未配置模型API密钥")
+        print("请在 config.json 文件中配置模型的 API Key")
         print("=" * 50)
         print()
+        return
 
     print("=" * 48)
     print("  量价分析助手 (输入 exit 退出)")
+    print("=" * 48)
+
+    # 显示可用模型
+    print(f"\n当前使用的模型: {DEFAULT_MODEL}")
+    print("可用模型:")
+    for i, (name, model_cfg) in enumerate(ALL_MODELS.items(), 1):
+        marker = " [默认]" if name == DEFAULT_MODEL else ""
+        print(f"  {i}. {name}{marker}")
+        print(f"     API: {model_cfg['base_url']}")
+        print()
+
     print("=" * 48)
     print()
 
@@ -110,6 +121,11 @@ def main():
         raw_count = input(f"请输入分析天数 (回车默认 {KLINE_COUNT}): ").strip()
         count = int(raw_count) if raw_count else KLINE_COUNT
 
+        # 提示数据量限制
+        if count > 150:
+            print(f"注意：分析天数 {count} 超过推荐上限 150 天，将自动限制为 150 天")
+            count = 150
+
         print(f"正在从通达信读取 {code} 最近 {count} 条日K数据...", end=" ", flush=True)
         try:
             df = read_daily(code, count)
@@ -122,6 +138,29 @@ def main():
             print()
             print(f"读取失败: {e}")
             continue
+
+        # 询问是否切换模型（默认N=不切换，输入Y/y切换）
+        while True:
+            model_choice = input(f"是否切换模型? (当前: {DEFAULT_MODEL}, 按回车保持当前) [Y/N]: ").strip().lower()
+            if model_choice == 'y':
+                print("可用模型:")
+                for i, name in enumerate(ALL_MODELS.keys(), 1):
+                    marker = " [默认]" if name == DEFAULT_MODEL else ""
+                    print(f"  {i}. {name}{marker}")
+                choice = input("请选择模型编号: ").strip()
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(ALL_MODELS):
+                        selected_model = list(ALL_MODELS.keys())[idx]
+                        print(f"已切换到模型: {selected_model}")
+                        break
+                    else:
+                        print("无效编号，保持使用当前模型")
+                        break
+                except ValueError:
+                    print("请输入数字编号")
+            else:
+                break
 
         print(f"正在调用 {LLM_MODEL} 进行分析...")
         print()

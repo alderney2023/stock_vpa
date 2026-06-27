@@ -1,0 +1,27 @@
+{
+  "models": [
+    {
+      "name": "deepseek-chat",
+      "api_key": "your_deepseek_api_key",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-chat",
+      "is_default": true
+    },
+    {
+      "name": "moonshot-v1-8k",
+      "api_key": "your_moonshot_api_key",
+      "base_url": "https://api.moonshot.cn/v1",
+      "model": "moonshot-v1-8k",
+      "is_default": false
+    },
+    {
+      "name": "qwen-plus",
+      "api_key": "your_qwen_api_key",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-plus",
+      "is_default": false
+    }
+  ],
+  "kline_count": 120,
+  "max_analysis_days": 150
+}

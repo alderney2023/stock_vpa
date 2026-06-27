@@ -12,5 +12,8 @@ wheels/
 # Environment variables
 .env
 
+# Configuration (user-specific)
+config.json
+
 # Data cache
 data/stocks.csv
