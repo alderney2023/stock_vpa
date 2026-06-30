@@ -9,6 +9,7 @@ from src.config import (
 )
 from src.stock_map import search, load_stocks
 from src.stock_reader import read_daily
+from src.weekly_reader import calc_weekly
 from src.vpa_analyzer import analyze
 
 
@@ -130,6 +131,10 @@ def main():
         try:
             df = read_daily(code, count)
             print(f"OK ({len(df)} 条)")
+            # 基于日K计算周K
+            print("正在计算周K数据...", end=" ", flush=True)
+            df_weekly = calc_weekly(df, weeks=52)
+            print(f"OK ({len(df_weekly)} 周)")
         except FileNotFoundError as e:
             print()
             print(e)
@@ -165,7 +170,7 @@ def main():
         print(f"正在调用 {LLM_MODEL} 进行分析...")
         print()
         try:
-            analyze(name, code, df)
+            analyze(name, code, df, df_weekly)
         except Exception as e:
             print(f"分析失败: {e}")
         print()

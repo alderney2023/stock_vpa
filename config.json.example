@@ -23,5 +23,9 @@
     }
   ],
   "kline_count": 120,
-  "max_analysis_days": 150
+  "max_analysis_days": 150,
+  "weekly_analysis": {
+    "enabled": true,
+    "weeks": 52
+  }
 }

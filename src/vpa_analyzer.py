@@ -1,49 +1,81 @@
-"""量价分析为核心的 LLM 分析器"""
-import json
+"""量价分析为核心的 LLM 分析器（支持周线锚定）"""
 from openai import OpenAI
 
 from src.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from src.vpa_indicators import VPIndicators
 from src.vpa_features import VPAExtractor
 
-_VPA_PROMPT = """你是一位资深机构交易员，专注量价关系分析。请基于以下数据，对 {name} ({code}) 进行深度量价分析。
+_WEEKLY_PROMPT = """你是一位资深机构交易员，专注量价关系分析。请基于以下数据，对 {name} ({code}) 进行深度量价分析。
 
-## 量价头版摘要
+## 【第一步】周线趋势判断（定大方向）
+以下是最低52周完整周的原始数据，请自行判断当前中期趋势：
+
+| 周起始 | 开盘 | 最高 | 最低 | 收盘 | 成交量 |
+|--------|------|------|------|------|--------|
+{weekly_rows}
+
+请基于以上周线数据，判断并输出：
+- 中期趋势方向：（如：上升、下降、震荡）
+- 趋势强度：（如：强、中、弱）
+- 关键周线支撑/阻力价位
+- 近4-8周量价配合概况
+
+---
+
+## 【第二步】日线量价分析（找入场点）
+
+### 日线头版摘要
 {headlines}
 
-## 量价阶段划分
+### 阶段划分
 {phases}
 
-## 关键价位
+### 关键价位
 {levels}
 
-## 量价异动事件
+### 量价异动
 {events}
 
-## 补充指标交叉验证
+### 补充验证
 {supp}
 
+---
 
-## 分析要求
+## 分析要求（严格按照此步骤）
 
-### 一、量价关系核心解读（重点，需占 80% 篇幅）
-- 结合 OBV / CMF / VWAP 判断资金真实意图：吸筹、洗盘、拉升、出货
+### 一、趋势一致性检验（重要！）
+1. 先看周线：中期趋势是什么？
+2. 再看日线：当前处于该趋势的什么位置？
+
+对照规则：
+- 若周线上升 + 日线回调 = "上升途中的正常回调，关注支撑位是否有效"
+- 若周线上升 + 日线突破 = "趋势确认，可考虑跟进"
+- 若周线下降 + 日线反弹 = "下降途中的反弹，警惕假突破"
+- 若周线震荡 + 日线异动 = "震荡区间内的波动，关注区间突破"
+
+### 二、量价关系核心解读（重点，需占 60% 篇幅）
+- 结合 OBV / CMF / VWAP 判断资金真实意图
 - 判断量价是否配合（放量涨/缩量跌 为健康）
 - 解读天量 / 地量 出现的位置及含义
 - 结合 A/D 线判断积累或分布
-- 综合 MFI 和 Force Index 判断买卖力量的强度
+- 综合 MFI 和 Force Index 判断买卖力量
 
-### 二、补充指标简要验证（简要，占 20% 篇幅）
-- 均线 / MACD 验证趋势方向
-- RSI / KDJ 验证超买超卖
+### 三、关键价位分析
+- 日线关键支撑/阻力
+- 这些价位与周线支撑/阻力的关系
+- 若日线价位接近周线关键位，需特别关注
+
+### 四、补充指标简要验证（占 20% 篇幅）
+- 均线 / MACD 验证
+- RSI / KDJ 验证
 - ATR / Bollinger 提供波动率背景
 
-### 三、结论
-1. 量价健康度 (0-10分，简述理由)
-2. 所处阶段 (吸筹/拉升/出货/下跌)
-3. 后市预判 (未来3-5日量价走势)
-4. 关键观察点与风险提示
-5. 操作建议 (仅参考)
+### 五、结论（必须包含以下格式）
+1. 【中期趋势评分】(0-10分，基于周线) + 简述理由
+2. 【短期状态】(吸筹/拉升/洗盘/出货/回调/反弹)
+3. 【趋势一致性】日线与周线是否一致？不一致时如何判断？
+4. 【入场点建议】若趋势一致，给出具体建议
+5. 【风险提示】关键观察点
 """
 
 
@@ -53,16 +85,17 @@ class VpaAnalyzer:
     def __init__(self):
         self._client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
 
-    def analyze(self, name: str, code: str, df):
-        n = len(df)
+    def analyze(self, name: str, code: str, df_daily, df_weekly):
+        n = len(df_daily)
 
         # 限制天数
         if n > self.MAX_DAYS:
             print(f"数据量 {n} 天超过限制 {self.MAX_DAYS} 天，将使用最后 {self.MAX_DAYS} 天数据")
-            df = df.tail(self.MAX_DAYS)
+            df_daily = df_daily.tail(self.MAX_DAYS)
             n = self.MAX_DAYS
 
-        ind = VPIndicators(df)
+        # 计算日线指标
+        ind = VPIndicators(df_daily)
         df_ind = ind.df
 
         ext = VPAExtractor(df_ind)
@@ -74,9 +107,13 @@ class VpaAnalyzer:
         events = self._fmt_events(feat["volume_events"])
         supp = self._fmt_supp(feat["supp_verify"])
 
-        prompt = _VPA_PROMPT.format(
+        # 格式化周K数据
+        weekly_rows = self._fmt_weekly(df_weekly)
+
+        prompt = _WEEKLY_PROMPT.format(
             name=name,
             code=code,
+            weekly_rows=weekly_rows,
             headlines=headlines,
             phases=phases,
             levels=levels,
@@ -84,10 +121,27 @@ class VpaAnalyzer:
             supp=supp,
         )
 
-        print(f"Prompt length: {len(prompt)} chars, using {n} days data")
+        print(f"Prompt length: {len(prompt)} chars, using {n} days data, {len(df_weekly)} weeks data")
         return self._stream(prompt)
 
-    # ---------- 格式化辅助 ----------
+    @staticmethod
+    def _fmt_weekly(df_weekly) -> str:
+        """格式化周K数据为表格行"""
+        lines = []
+        for _, r in df_weekly.iterrows():
+            v = r['volume']
+            # 成交量格式化为 万/亿
+            if v >= 1e8:
+                vol_str = f"{v/1e8:.2f}亿"
+            elif v >= 1e4:
+                vol_str = f"{v/1e4:.2f}万"
+            else:
+                vol_str = f"{v:.0f}"
+            lines.append(
+                f"| {r['week_start']} | {r['open']:.2f} | {r['high']:.2f} | {r['low']:.2f} | {r['close']:.2f} | {vol_str} |"
+            )
+        return "\n".join(lines)
+
     @staticmethod
     def _fmt_headlines(d) -> str:
         return "\n".join(f"- {k}: {v}" for k, v in d.items())
@@ -150,5 +204,5 @@ class VpaAnalyzer:
             return None
 
 
-def analyze(name: str, code: str, df):
-    return VpaAnalyzer().analyze(name, code, df)
+def analyze(name: str, code: str, df_daily, df_weekly):
+    return VpaAnalyzer().analyze(name, code, df_daily, df_weekly)
